@@ -1,108 +1,109 @@
+import { ChannelSquare } from "./ChannelSquare.ts";
+import { ChannelTriangle } from "./ChannelTriangle.ts";
+import { ChannelNoise } from "./ChannelNoise.ts";
+import { ChannelDM } from "./ChannelDM.ts";
+
 const CPU_FREQ_NTSC = 1789772.5; //1789772.72727272d;
 const CPU_FREQ_PAL = 1773447.4;
+export class PAPU {
+  square1 = new ChannelSquare(this, true);
+  square2 = new ChannelSquare(this, false);
+  triangle = new ChannelTriangle(this);
+  noise = new ChannelNoise(this);
+  dmc = new ChannelDM(this);
 
-var PAPU = function (nes) {
-  this.nes = nes;
+  frameIrqCounter = 0;
+  frameIrqCounterMax = 4;
+  initCounter = 2048;
+  channelEnableValue = 0;
 
-  this.square1 = new ChannelSquare(this, true);
-  this.square2 = new ChannelSquare(this, false);
-  this.triangle = new ChannelTriangle(this);
-  this.noise = new ChannelNoise(this);
-  this.dmc = new ChannelDM(this);
+  sampleRate = 44100;
 
-  this.frameIrqCounter = null;
-  this.frameIrqCounterMax = 4;
-  this.initCounter = 2048;
-  this.channelEnableValue = null;
+  lengthLookup: number[] = [];
+  dmcFreqLookup: number[] = [];
+  noiseWavelengthLookup: number[] = [];
+  square_table: number[] = [];
+  tnd_table: number[] = [];
 
-  this.sampleRate = 44100;
+  frameIrqEnabled = false;
+  frameIrqActive = false;
+  frameClockNow = false;
+  startedPlaying = false;
+  recordOutput = false;
+  initingHardware = false;
 
-  this.lengthLookup = null;
-  this.dmcFreqLookup = null;
-  this.noiseWavelengthLookup = null;
-  this.square_table = null;
-  this.tnd_table = null;
+  masterFrameCounter = 0;
+  derivedFrameCounter = 0;
+  countSequence = 0;
+  sampleTimer = 0;
+  frameTime = 0;
+  sampleTimerMax = 0;
+  sampleCount = 0;
+  triValue = 0;
 
-  this.frameIrqEnabled = false;
-  this.frameIrqActive = null;
-  this.frameClockNow = null;
-  this.startedPlaying = false;
-  this.recordOutput = false;
-  this.initingHardware = false;
-
-  this.masterFrameCounter = null;
-  this.derivedFrameCounter = null;
-  this.countSequence = null;
-  this.sampleTimer = null;
-  this.frameTime = null;
-  this.sampleTimerMax = null;
-  this.sampleCount = null;
-  this.triValue = 0;
-
-  this.smpSquare1 = null;
-  this.smpSquare2 = null;
-  this.smpTriangle = null;
-  this.smpDmc = null;
-  this.accCount = null;
+  smpSquare1 = 0;
+  smpSquare2 = 0;
+  smpTriangle = 0;
+  smpDmc = 0;
+  accCount = 0;
 
   // DC removal vars:
-  this.prevSampleL = 0;
-  this.prevSampleR = 0;
-  this.smpAccumL = 0;
-  this.smpAccumR = 0;
+  prevSampleL = 0;
+  prevSampleR = 0;
+  smpAccumL = 0;
+  smpAccumR = 0;
 
   // DAC range:
-  this.dacRange = 0;
-  this.dcValue = 0;
+  dacRange = 0;
+  dcValue = 0;
 
   // Master volume:
-  this.masterVolume = 256;
+  masterVolume = 256;
 
   // Stereo positioning:
-  this.stereoPosLSquare1 = null;
-  this.stereoPosLSquare2 = null;
-  this.stereoPosLTriangle = null;
-  this.stereoPosLNoise = null;
-  this.stereoPosLDMC = null;
-  this.stereoPosRSquare1 = null;
-  this.stereoPosRSquare2 = null;
-  this.stereoPosRTriangle = null;
-  this.stereoPosRNoise = null;
-  this.stereoPosRDMC = null;
+  stereoPosLSquare1 = 0;
+  stereoPosLSquare2 = 0;
+  stereoPosLTriangle = 0;
+  stereoPosLNoise = 0;
+  stereoPosLDMC = 0;
+  stereoPosRSquare1 = 0;
+  stereoPosRSquare2 = 0;
+  stereoPosRTriangle = 0;
+  stereoPosRNoise = 0;
+  stereoPosRDMC = 0;
 
-  this.extraCycles = null;
+  extraCycles = 0;
 
-  this.maxSample = null;
-  this.minSample = null;
+  maxSample = 0;
+  minSample = 0;
 
   // Panning:
-  this.panning = [80, 170, 100, 150, 128];
-  this.setPanning(this.panning);
+  panning = [80, 170, 100, 150, 128];
+  constructor(private nes: any) {
+    this.setPanning(this.panning);
 
-  // Initialize lookup tables:
-  this.initLengthLookup();
-  this.initDmcFrequencyLookup();
-  this.initNoiseWavelengthLookup();
-  this.initDACtables();
+    // Initialize lookup tables:
+    this.initLengthLookup();
+    this.initDmcFrequencyLookup();
+    this.initNoiseWavelengthLookup();
+    this.initDACtables();
 
-  // Init sound registers:
-  for (var i = 0; i < 0x14; i++) {
-    if (i === 0x10) {
-      this.writeReg(0x4010, 0x10);
-    } else {
-      this.writeReg(0x4000 + i, 0);
+    // Init sound registers:
+    for (var i = 0; i < 0x14; i++) {
+      if (i === 0x10) {
+        this.writeReg(0x4010, 0x10);
+      } else {
+        this.writeReg(0x4000 + i, 0);
+      }
     }
+
+    this.reset();
   }
-
-  this.reset();
-};
-
-PAPU.prototype = {
-  reset: function () {
+  reset() {
     this.sampleRate = this.nes.opts.sampleRate;
     this.sampleTimerMax = Math.floor(
       (1024.0 * CPU_FREQ_NTSC * this.nes.opts.preferredFrameRate) /
-        (this.sampleRate * 60.0)
+      (this.sampleRate * 60.0)
     );
 
     this.frameTime = Math.floor(
@@ -146,10 +147,10 @@ PAPU.prototype = {
 
     this.maxSample = -500000;
     this.minSample = 500000;
-  },
+  }
 
   // eslint-disable-next-line no-unused-vars
-  readReg: function (address) {
+  readReg(address: number) {
     // Read 0x4015:
     var tmp = 0;
     tmp |= this.square1.getLengthStatus();
@@ -164,9 +165,9 @@ PAPU.prototype = {
     this.dmc.irqGenerated = false;
 
     return tmp & 0xffff;
-  },
+  }
 
-  writeReg: function (address, value) {
+  writeReg(address: number, value: number) {
     if (address >= 0x4000 && address < 0x4004) {
       // Square Wave 1 Control
       this.square1.writeReg(address, value);
@@ -226,35 +227,35 @@ PAPU.prototype = {
         this.frameCounterTick();
       }
     }
-  },
+  }
 
-  resetCounter: function () {
+  resetCounter() {
     if (this.countSequence === 0) {
       this.derivedFrameCounter = 4;
     } else {
       this.derivedFrameCounter = 0;
     }
-  },
+  }
 
   // Updates channel enable status.
   // This is done on writes to the
   // channel enable register (0x4015),
   // and when the user enables/disables channels
   // in the GUI.
-  updateChannelEnable: function (value) {
+  updateChannelEnable(value: number) {
     this.channelEnableValue = value & 0xffff;
     this.square1.setEnabled((value & 1) !== 0);
     this.square2.setEnabled((value & 2) !== 0);
     this.triangle.setEnabled((value & 4) !== 0);
     this.noise.setEnabled((value & 8) !== 0);
     this.dmc.setEnabled((value & 16) !== 0);
-  },
+  }
 
   // Clocks the frame counter. It should be clocked at
   // twice the cpu speed, so the cycles will be
   // divided by 2 for those counters that are
   // clocked at cpu speed.
-  clockFrameCounter: function (nCycles) {
+  clockFrameCounter(nCycles: number) {
     if (this.initCounter > 0) {
       if (this.initingHardware) {
         this.initCounter -= nCycles;
@@ -396,9 +397,9 @@ PAPU.prototype = {
       this.sample();
       this.sampleTimer -= this.sampleTimerMax;
     }
-  },
+  }
 
-  accSample: function (cycles) {
+  accSample(cycles: number) {
     // Special treatment for triangle channel - need to interpolate.
     if (this.triangle.sampleCondition) {
       this.triValue = Math.floor(
@@ -435,9 +436,9 @@ PAPU.prototype = {
       this.smpSquare2 += cycles * this.square2.sampleValue;
       this.accCount += cycles;
     }
-  },
+  }
 
-  frameCounterTick: function () {
+  frameCounterTick() {
     this.derivedFrameCounter++;
     if (this.derivedFrameCounter >= this.frameIrqCounterMax) {
       this.derivedFrameCounter = 0;
@@ -467,10 +468,10 @@ PAPU.prototype = {
     }
 
     // End of 240Hz tick
-  },
+  }
 
   // Samples the channels, mixes the output together, then writes to buffer.
-  sample: function () {
+  sample() {
     var sq_index, tnd_index;
 
     if (this.accCount > 0) {
@@ -566,34 +567,34 @@ PAPU.prototype = {
     this.smpSquare2 = 0;
     this.smpTriangle = 0;
     this.smpDmc = 0;
-  },
+  }
 
-  getLengthMax: function (value) {
+  getLengthMax(value: number) {
     return this.lengthLookup[value >> 3];
-  },
+  }
 
-  getDmcFrequency: function (value) {
+  getDmcFrequency(value: number) {
     if (value >= 0 && value < 0x10) {
       return this.dmcFreqLookup[value];
     }
     return 0;
-  },
+  }
 
-  getNoiseWaveLength: function (value) {
+  getNoiseWaveLength(value: number) {
     if (value >= 0 && value < 0x10) {
       return this.noiseWavelengthLookup[value];
     }
     return 0;
-  },
+  }
 
-  setPanning: function (pos) {
+  setPanning(pos: number[]) {
     for (var i = 0; i < 5; i++) {
       this.panning[i] = pos[i];
     }
     this.updateStereoPos();
-  },
+  }
 
-  setMasterVolume: function (value) {
+  setMasterVolume(value: number) {
     if (value < 0) {
       value = 0;
     }
@@ -602,9 +603,9 @@ PAPU.prototype = {
     }
     this.masterVolume = value;
     this.updateStereoPos();
-  },
+  }
 
-  updateStereoPos: function () {
+  updateStereoPos() {
     this.stereoPosLSquare1 = (this.panning[0] * this.masterVolume) >> 8;
     this.stereoPosLSquare2 = (this.panning[1] * this.masterVolume) >> 8;
     this.stereoPosLTriangle = (this.panning[2] * this.masterVolume) >> 8;
@@ -616,31 +617,31 @@ PAPU.prototype = {
     this.stereoPosRTriangle = this.masterVolume - this.stereoPosLTriangle;
     this.stereoPosRNoise = this.masterVolume - this.stereoPosLNoise;
     this.stereoPosRDMC = this.masterVolume - this.stereoPosLDMC;
-  },
+  }
 
-  initLengthLookup: function () {
+  initLengthLookup() {
     // prettier-ignore
     this.lengthLookup = [
-            0x0A, 0xFE,
-            0x14, 0x02,
-            0x28, 0x04,
-            0x50, 0x06,
-            0xA0, 0x08,
-            0x3C, 0x0A,
-            0x0E, 0x0C,
-            0x1A, 0x0E,
-            0x0C, 0x10,
-            0x18, 0x12,
-            0x30, 0x14,
-            0x60, 0x16,
-            0xC0, 0x18,
-            0x48, 0x1A,
-            0x10, 0x1C,
-            0x20, 0x1E
-        ];
-  },
+      0x0A, 0xFE,
+      0x14, 0x02,
+      0x28, 0x04,
+      0x50, 0x06,
+      0xA0, 0x08,
+      0x3C, 0x0A,
+      0x0E, 0x0C,
+      0x1A, 0x0E,
+      0x0C, 0x10,
+      0x18, 0x12,
+      0x30, 0x14,
+      0x60, 0x16,
+      0xC0, 0x18,
+      0x48, 0x1A,
+      0x10, 0x1C,
+      0x20, 0x1E
+    ];
+  }
 
-  initDmcFrequencyLookup: function () {
+  initDmcFrequencyLookup() {
     this.dmcFreqLookup = new Array(16);
 
     this.dmcFreqLookup[0x0] = 0xd60;
@@ -660,9 +661,9 @@ PAPU.prototype = {
     this.dmcFreqLookup[0xe] = 0x240;
     this.dmcFreqLookup[0xf] = 0x1b0;
     //for(int i=0;i<16;i++)dmcFreqLookup[i]/=8;
-  },
+  }
 
-  initNoiseWavelengthLookup: function () {
+  initNoiseWavelengthLookup() {
     this.noiseWavelengthLookup = new Array(16);
 
     this.noiseWavelengthLookup[0x0] = 0x004;
@@ -681,9 +682,9 @@ PAPU.prototype = {
     this.noiseWavelengthLookup[0xd] = 0x3f8;
     this.noiseWavelengthLookup[0xe] = 0x7f2;
     this.noiseWavelengthLookup[0xf] = 0xfe4;
-  },
+  }
 
-  initDACtables: function () {
+  initDACtables() {
     var value, ival, i;
     var max_sqr = 0;
     var max_tnd = 0;
@@ -717,5 +718,5 @@ PAPU.prototype = {
 
     this.dacRange = max_sqr + max_tnd;
     this.dcValue = this.dacRange / 2;
-  },
-};
+  }
+}
