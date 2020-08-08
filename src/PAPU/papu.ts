@@ -1,5 +1,5 @@
-var CPU_FREQ_NTSC = 1789772.5; //1789772.72727272d;
-// var CPU_FREQ_PAL = 1773447.4;
+const CPU_FREQ_NTSC = 1789772.5; //1789772.72727272d;
+const CPU_FREQ_PAL = 1773447.4;
 
 var PAPU = function (nes) {
   this.nes = nes;
